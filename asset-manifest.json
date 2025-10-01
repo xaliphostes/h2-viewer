@@ -1,0 +1,13 @@
+{
+  "files": {
+    "main.css": "/h2-viewer/static/css/main.e474b5d3.css",
+    "main.js": "/h2-viewer/static/js/main.686ab37c.js",
+    "index.html": "/h2-viewer/index.html",
+    "main.e474b5d3.css.map": "/h2-viewer/static/css/main.e474b5d3.css.map",
+    "main.686ab37c.js.map": "/h2-viewer/static/js/main.686ab37c.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.e474b5d3.css",
+    "static/js/main.686ab37c.js"
+  ]
+}
