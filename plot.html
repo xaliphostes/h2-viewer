@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        import React, { useState, useEffect } from 'react';
+
+        const H2MapVisualization = () => {
+            const [data, setData] = useState([]);
+            const [minValue, setMinValue] = useState(0);
+            const [maxValue, setMaxValue] = useState(0);
+
+            useEffect(() => {
+                const loadData = async () => {
+                    try {
+                        const fileContent = await window.fs.readFile('h2_frantz.csv', { encoding: 'utf8' });
+
+                        const lines = fileContent.trim().split('\n');
+                        const parsedData = lines.slice(1).map(line => {
+                            const [lat, lon, h2] = line.split(';').map(v => parseFloat(v.trim()));
+                            return { lat, lon, h2 };
+                        }).filter(d => !isNaN(d.lat) && !isNaN(d.lon) && !isNaN(d.h2));
+
+                        const h2Values = parsedData.map(d => d.h2);
+                        const min = Math.min(...h2Values);
+                        const max = Math.max(...h2Values);
+
+                        setData(parsedData);
+                        setMinValue(min);
+                        setMaxValue(max);
+                    } catch (error) {
+                        console.error('Error loading data:', error);
+                    }
+                };
+
+                loadData();
+            }, []);
+
+            const getColor = (value) => {
+                const normalized = (value - minValue) / (maxValue - minValue);
+
+                if (normalized < 0.25) {
+                    const t = normalized / 0.25;
+                    return `rgb(${Math.round(0 + 68 * t)}, ${Math.round(0 + 119 * t)}, ${Math.round(255 - 74 * t)})`;
+                } else if (normalized < 0.5) {
+                    const t = (normalized - 0.25) / 0.25;
+                    return `rgb(${Math.round(68 + 92 * t)}, ${Math.round(119 + 91 * t)}, ${Math.round(181 - 111 * t)})`;
+                } else if (normalized < 0.75) {
+                    const t = (normalized - 0.5) / 0.25;
+                    return `rgb(${Math.round(160 + 91 * t)}, ${Math.round(210 + 35 * t)}, ${Math.round(70 - 70 * t)})`;
+                } else {
+                    const t = (normalized - 0.75) / 0.25;
+                    return `rgb(${Math.round(251 + 4 * t)}, ${Math.round(245 - 58 * t)}, ${Math.round(0)})`;
+                }
+            };
+
+            if (data.length === 0) {
+                return <div className="flex items-center justify-center h-screen">Loading data...</div>;
+            }
+
+            const latitudes = data.map(d => d.lat);
+            const longitudes = data.map(d => d.lon);
+            const centerLat = (Math.min(...latitudes) + Math.max(...latitudes)) / 2;
+            const centerLon = (Math.min(...longitudes) + Math.max(...longitudes)) / 2;
+            const latRange = Math.max(...latitudes) - Math.min(...latitudes);
+            const lonRange = Math.max(...longitudes) - Math.min(...longitudes);
+
+            const width = 1000;
+            const height = 700;
+            const padding = 60;
+
+            const mapWidth = width - 2 * padding;
+            const mapHeight = height - 2 * padding - 80;
+
+            const lonToX = (lon) => padding + ((lon - Math.min(...longitudes)) / lonRange) * mapWidth;
+            const latToY = (lat) => padding + ((Math.max(...latitudes) - lat) / latRange) * mapHeight;
+
+            const legendStops = 5;
+            const legendWidth = 300;
+            const legendHeight = 20;
+
+            return (
+                <div className="p-8 bg-gray-50">
+                    <h1 className="text-3xl font-bold mb-2 text-gray-800">H₂ Concentration Map</h1>
+                    <p className="text-gray-600 mb-6">Hydrogen measurements (PPM) across sampling locations</p>
+
+                    <svg width={width} height={height} className="bg-white rounded-lg shadow-lg">
+                        <rect x={padding} y={padding} width={mapWidth} height={mapHeight} fill="#f0f4f8" stroke="#d1d5db" strokeWidth="2" />
+
+                        {data.map((point, i) => (
+                            <g key={i}>
+                                <circle
+                                    cx={lonToX(point.lon)}
+                                    cy={latToY(point.lat)}
+                                    r={6}
+                                    fill={getColor(point.h2)}
+                                    stroke="white"
+                                    strokeWidth="1.5"
+                                    opacity={0.85}
+                                />
+                                <title>{`Lat: ${point.lat.toFixed(5)}, Lon: ${point.lon.toFixed(5)}, H₂: ${point.h2} PPM`}</title>
+                            </g>
+                        ))}
+
+                        <text x={padding} y={padding - 20} fontSize="14" fill="#4b5563" fontWeight="600">
+                            Latitude: {Math.max(...latitudes).toFixed(3)}°N
+                        </text>
+                        <text x={padding} y={padding + mapHeight + 35} fontSize="14" fill="#4b5563" fontWeight="600">
+                            Latitude: {Math.min(...latitudes).toFixed(3)}°N
+                        </text>
+                        <text x={padding - 10} y={padding + mapHeight / 2} fontSize="14" fill="#4b5563" fontWeight="600" textAnchor="end" transform={`rotate(-90, ${padding - 10}, ${padding + mapHeight / 2})`}>
+                            Longitude: {Math.min(...longitudes).toFixed(3)}°W to {Math.max(...longitudes).toFixed(3)}°W
+                        </text>
+
+                        <g transform={`translate(${width / 2 - legendWidth / 2}, ${height - 60})`}>
+                            <text x={legendWidth / 2} y={-10} fontSize="16" fill="#1f2937" fontWeight="600" textAnchor="middle">
+                                H₂ Concentration (PPM)
+                            </text>
+
+                            <defs>
+                                <linearGradient id="legendGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                                    <stop offset="0%" style={{ stopColor: getColor(minValue), stopOpacity: 1 }} />
+                                    <stop offset="25%" style={{ stopColor: getColor(minValue + (maxValue - minValue) * 0.25), stopOpacity: 1 }} />
+                                    <stop offset="50%" style={{ stopColor: getColor(minValue + (maxValue - minValue) * 0.5), stopOpacity: 1 }} />
+                                    <stop offset="75%" style={{ stopColor: getColor(minValue + (maxValue - minValue) * 0.75), stopOpacity: 1 }} />
+                                    <stop offset="100%" style={{ stopColor: getColor(maxValue), stopOpacity: 1 }} />
+                                </linearGradient>
+                            </defs>
+
+                            <rect x={0} y={0} width={legendWidth} height={legendHeight} fill="url(#legendGradient)" stroke="#9ca3af" strokeWidth="1" />
+
+                            {[...Array(legendStops)].map((_, i) => {
+                                const value = minValue + (maxValue - minValue) * (i / (legendStops - 1));
+                                const x = (legendWidth * i) / (legendStops - 1);
+                                return (
+                                    <g key={i}>
+                                        <line x1={x} y1={legendHeight} x2={x} y2={legendHeight + 5} stroke="#6b7280" strokeWidth="1" />
+                                        <text x={x} y={legendHeight + 20} fontSize="12" fill="#4b5563" textAnchor="middle">
+                                            {value.toFixed(2)}
+                                        </text>
+                                    </g>
+                                );
+                            })}
+                        </g>
+                    </svg>
+
+                    <div className="mt-4 text-sm text-gray-600">
+                        <p><strong>Total points:</strong> {data.length}</p>
+                        <p><strong>Range:</strong> {minValue.toFixed(2)} - {maxValue.toFixed(2)} PPM</p>
+                        <p className="mt-2 text-xs italic">Hover over points to see detailed values</p>
+                    </div>
+                </div>
+            );
+        };
+
+        //export default H2MapVisualization;
+
+        ReactDOM.render(<H2MapVisualization />, document.getElementById('root'));
+    </script>
+</body>
+
+</html>
