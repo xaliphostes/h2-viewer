@@ -5,6 +5,7 @@
     "homepage": "https://xaliphostes.github.io/h2-viewer",
     "dependencies": {
         "@kitware/vtk.js": "^34.13.1",
+        "delaunator": "^5.0.1",
         "leaflet": "^1.9.4",
         "papaparse": "^5.5.3",
         "react": "^19.0.0-rc.1",

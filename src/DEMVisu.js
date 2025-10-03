@@ -3,150 +3,284 @@ import '@kitware/vtk.js/Rendering/Profiles/Geometry';
 import vtkFullScreenRenderWindow from '@kitware/vtk.js/Rendering/Misc/FullScreenRenderWindow';
 import vtkActor from '@kitware/vtk.js/Rendering/Core/Actor';
 import vtkMapper from '@kitware/vtk.js/Rendering/Core/Mapper';
-import vtkPlaneSource from '@kitware/vtk.js/Filters/Sources/PlaneSource';
-import vtkTexture from '@kitware/vtk.js/Rendering/Core/Texture';
-import vtkImageData from '@kitware/vtk.js/Common/DataModel/ImageData';
+import vtkPolyData from '@kitware/vtk.js/Common/DataModel/PolyData';
+import vtkPoints from '@kitware/vtk.js/Common/Core/Points';
+import vtkCellArray from '@kitware/vtk.js/Common/Core/CellArray';
 import vtkDataArray from '@kitware/vtk.js/Common/Core/DataArray';
+import vtkColorTransferFunction from '@kitware/vtk.js/Rendering/Core/ColorTransferFunction';
+import Delaunator from 'delaunator';
 
-const DEMVisu = ({ demData, colorizedImageUrl, bounds }) => {
+const DEMVisu = () => {
     const vtkContainerRef = useRef(null);
-    const renderWindowRef = useRef(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [stats, setStats] = useState(null);
 
-    // Set up 3D visualization with vtk.js
     useEffect(() => {
-        if (!demData || !vtkContainerRef.current) return;
+        const loadAndVisualize = async () => {
+            try {
+                setLoading(true);
+                
+                 // Auto-load the DEM file
+                // Use process.env.PUBLIC_URL to handle both development and production paths
+                const filePath = `${process.env.PUBLIC_URL}/POC-land_surface_vertices.xyz`;
+                const response = await fetch(filePath);
+                
+                if (!response.ok) {
+                    throw new Error(`Failed to load file: ${response.statusText}`);
+                }
+                
+                const text = await response.text();
+                
+                // Parse XYZ file
+                const lines = text.trim().split('\n');
+                const points = [];
+                const coords2D = []; // For Delaunator (X, Y only)
+                const zValues = [];
+                
+                for (const line of lines) {
+                    const trimmedLine = line.trim();
+                    if (trimmedLine.length === 0 || trimmedLine.startsWith('#')) continue;
+                    
+                    const values = trimmedLine.split(/\s+/).map(parseFloat);
+                    if (values.length >= 3 && values.every(v => !isNaN(v))) {
+                        const [x, y, z] = values;
+                        points.push(x, y, z);
+                        coords2D.push(x, y); // For Delaunator
+                        zValues.push(z);
+                    }
+                }
+                
+                if (points.length === 0) {
+                    throw new Error('No valid data points found in file');
+                }
 
-        // Clear any existing render window
-        if (renderWindowRef.current) {
-            renderWindowRef.current.delete();
-        }
-
-        // Create full screen render window
-        const fullScreenRenderer = vtkFullScreenRenderWindow.newInstance({
-            container: vtkContainerRef.current,
-            background: [0.1, 0.1, 0.1],
-        });
-
-        const renderer = fullScreenRenderer.getRenderer();
-        const renderWindow = fullScreenRenderer.getRenderWindow();
-        renderWindowRef.current = fullScreenRenderer;
-
-        // Create plane source for the terrain
-        const planeSource = vtkPlaneSource.newInstance({
-            xResolution: demData.width - 1,
-            yResolution: demData.height - 1,
-            origin: [0, 0, 0],
-            point1: [demData.width, 0, 0],
-            point2: [0, demData.height, 0],
-        });
-
-        // Get the polydata from plane
-        const polydata = planeSource.getOutputData();
-        const points = polydata.getPoints();
-        const pointData = points.getData();
-
-        // Apply elevation from DEM data
-        const elevationScale = 0.5; // Adjust this to exaggerate/reduce terrain height
-        for (let j = 0; j < demData.height; j++) {
-            for (let i = 0; i < demData.width; i++) {
-                const idx = (j * demData.width + i) * 3;
-                const demIdx = j * demData.width + i;
-                pointData[idx + 2] = demData.data[demIdx] * elevationScale;
-            }
-        }
-
-        points.modified();
-
-        // Create mapper and actor
-        const mapper = vtkMapper.newInstance();
-        mapper.setInputData(polydata);
-
-        const actor = vtkActor.newInstance();
-        actor.setMapper(mapper);
-
-        // If we have a colorized image, apply it as texture
-        if (colorizedImageUrl) {
-            const image = new Image();
-            image.onload = () => {
-                const canvas = document.createElement('canvas');
-                canvas.width = image.width;
-                canvas.height = image.height;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(image, 0, 0);
-                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-                // Create VTK image data
-                const vtkImage = vtkImageData.newInstance();
-                vtkImage.setDimensions(canvas.width, canvas.height, 1);
-
-                const scalars = vtkDataArray.newInstance({
-                    numberOfComponents: 4,
-                    values: imageData.data,
+                let minZ = Infinity;
+                let maxZ = -Infinity;
+                zValues.forEach(z => {
+                    if (z < minZ) minZ = z;
+                    if (z > maxZ) maxZ = z;
                 });
-
-                vtkImage.getPointData().setScalars(scalars);
-
-                // Create and apply texture
-                const texture = vtkTexture.newInstance();
-                texture.setInputData(vtkImage);
-                actor.addTexture(texture);
-
+                
+                const numPoints = points.length / 3;
+                
+                console.log(`Loaded ${numPoints} points from POC-land_surface_vertices.xyz`);
+                console.log(`Z range: ${minZ.toFixed(2)} to ${maxZ.toFixed(2)}`);
+                
+                // Perform Delaunay triangulation using delaunator
+                const delaunay = Delaunator.from(
+                    coords2D.reduce((acc, val, i) => {
+                        if (i % 2 === 0) acc.push([val, coords2D[i + 1]]);
+                        return acc;
+                    }, [])
+                );
+                
+                console.log(`Created ${delaunay.triangles.length / 3} triangles`);
+                
+                setStats({
+                    numPoints,
+                    numTriangles: delaunay.triangles.length / 3,
+                    minZ,
+                    maxZ
+                });
+                
+                // Create VTK visualization
+                if (!vtkContainerRef.current) return;
+                
+                // Clear container
+                vtkContainerRef.current.innerHTML = '';
+                
+                // Create full screen render window
+                const fullScreenRenderer = vtkFullScreenRenderWindow.newInstance({
+                    rootContainer: vtkContainerRef.current,
+                    containerStyle: {
+                        height: '600px',
+                        width: '100%',
+                        position: 'relative'
+                    }
+                });
+                
+                const renderer = fullScreenRenderer.getRenderer();
+                const renderWindow = fullScreenRenderer.getRenderWindow();
+                
+                // Create polydata
+                const polydata = vtkPolyData.newInstance();
+                
+                // Add points
+                const vtkPoints_instance = vtkPoints.newInstance();
+                vtkPoints_instance.setData(Float32Array.from(points), 3);
+                polydata.setPoints(vtkPoints_instance);
+                
+                // Create triangles from delaunator output
+                // delaunator.triangles is a flat array where each triplet defines a triangle
+                const numTriangles = delaunay.triangles.length / 3;
+                const triangles = new Uint32Array(numTriangles * 4);
+                
+                for (let i = 0; i < numTriangles; i++) {
+                    triangles[i * 4] = 3; // Number of points in this polygon (triangle)
+                    triangles[i * 4 + 1] = delaunay.triangles[i * 3];     // First vertex
+                    triangles[i * 4 + 2] = delaunay.triangles[i * 3 + 1]; // Second vertex
+                    triangles[i * 4 + 3] = delaunay.triangles[i * 3 + 2]; // Third vertex
+                }
+                
+                const triangleCells = vtkCellArray.newInstance({ values: triangles });
+                polydata.setPolys(triangleCells);
+                
+                // Add Z values as scalars for coloring
+                const scalars = vtkDataArray.newInstance({
+                    name: 'Elevation',
+                    values: Float32Array.from(zValues)
+                });
+                polydata.getPointData().setScalars(scalars);
+                
+                // Create mapper
+                const mapper = vtkMapper.newInstance();
+                mapper.setInputData(polydata);
+                mapper.setScalarModeToUsePointData();
+                mapper.setScalarRange(minZ, maxZ);
+                
+                // Create color transfer function
+                const lookupTable = vtkColorTransferFunction.newInstance();
+                lookupTable.addRGBPoint(minZ, 0.0, 0.0, 1.0);          // Blue for low
+                lookupTable.addRGBPoint(minZ + (maxZ - minZ) * 0.25, 0.0, 1.0, 1.0); // Cyan
+                lookupTable.addRGBPoint(minZ + (maxZ - minZ) * 0.5, 0.0, 1.0, 0.0);  // Green
+                lookupTable.addRGBPoint(minZ + (maxZ - minZ) * 0.75, 1.0, 1.0, 0.0); // Yellow
+                lookupTable.addRGBPoint(maxZ, 1.0, 0.0, 0.0);          // Red for high
+                
+                mapper.setLookupTable(lookupTable);
+                
+                // Create actor
+                const actor = vtkActor.newInstance();
+                actor.setMapper(mapper);
+                
+                // Add actor to renderer
+                renderer.addActor(actor);
+                renderer.resetCamera();
+                renderer.getActiveCamera().elevation(-30);
+                renderer.getActiveCamera().azimuth(45);
+                renderer.resetCameraClippingRange();
+                
+                // Set background
+                renderer.setBackground(0.95, 0.95, 0.97);
+                
+                // Render
                 renderWindow.render();
-            };
-            image.src = colorizedImageUrl;
-        }
-
-        renderer.addActor(actor);
-        renderer.resetCamera();
-        renderWindow.render();
-
-        // Handle window resize
-        const handleResize = () => {
-            if (renderWindow) {
-                renderWindow.render();
+                
+                setLoading(false);
+                setError(null);
+                
+                // Cleanup function
+                return () => {
+                    fullScreenRenderer.delete();
+                };
+                
+            } catch (err) {
+                setError(`Error loading DEM file: ${err.message}`);
+                setLoading(false);
+                console.error('Error in DEMVisu:', err);
             }
         };
-
-        window.addEventListener('resize', handleResize);
-
-        return () => {
-            window.removeEventListener('resize', handleResize);
-            if (renderWindowRef.current) {
-                renderWindowRef.current.delete();
-                renderWindowRef.current = null;
-            }
-        };
-    }, [demData, colorizedImageUrl]);
+        
+        loadAndVisualize();
+    }, []);
 
     return (
-        <div style={{ width: '100%', height: '100vh', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ width: '100%', height: '50%', position: 'relative' }}>
-                <div
-                    ref={vtkContainerRef}
-                    style={{
-                        width: '100%',
-                        height: '100%',
-                        background: '#1a1a1a'
-                    }}
-                />
-                {demData && (
-                    <div style={{
-                        position: 'absolute',
-                        top: 10,
-                        left: 10,
-                        background: 'rgba(0,0,0,0.7)',
-                        color: 'white',
-                        padding: '10px',
-                        borderRadius: '4px',
-                        fontSize: '12px'
+        <div style={{ 
+            backgroundColor: '#f9fafb', 
+            padding: '2rem',
+            minHeight: '100vh'
+        }}>
+            <div style={{ marginBottom: '1.5rem' }}>
+                <h1 style={{ 
+                    fontSize: '2rem', 
+                    fontWeight: 'bold', 
+                    marginBottom: '0.5rem',
+                    color: '#1f2937'
+                }}>
+                    DEM Visualization with VTK.js + Delaunator
+                </h1>
+                <p style={{ 
+                    color: '#6b7280', 
+                    marginBottom: '1rem',
+                    fontSize: '1rem'
+                }}>
+                    POC-land_surface_vertices.xyz - 3D Terrain Surface
+                </p>
+                
+                {stats && (
+                    <div style={{ 
+                        fontSize: '0.875rem', 
+                        color: '#4b5563',
+                        backgroundColor: 'white',
+                        padding: '1rem',
+                        borderRadius: '0.5rem',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
                     }}>
-                        <div><strong>3D Terrain View</strong></div>
-                        <div>Width: {demData.width}px</div>
-                        <div>Height: {demData.height}px</div>
-                        <div>Use mouse to rotate, zoom</div>
+                        <p style={{ margin: '0.25rem 0' }}>
+                            <strong>File:</strong> POC-land_surface_vertices.xyz (auto-loaded)
+                        </p>
+                        <p style={{ margin: '0.25rem 0' }}>
+                            <strong>Total points:</strong> {stats.numPoints}
+                        </p>
+                        <p style={{ margin: '0.25rem 0' }}>
+                            <strong>Triangles:</strong> {stats.numTriangles}
+                        </p>
+                        <p style={{ margin: '0.25rem 0' }}>
+                            <strong>Elevation range:</strong> {stats.minZ.toFixed(2)} - {stats.maxZ.toFixed(2)}
+                        </p>
+                        <p style={{ 
+                            margin: '0.75rem 0 0 0', 
+                            fontSize: '0.75rem', 
+                            fontStyle: 'italic',
+                            color: '#6b7280'
+                        }}>
+                            Use mouse to rotate, zoom, and pan the 3D view
+                        </p>
                     </div>
                 )}
             </div>
+            
+            {loading && (
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    height: '600px',
+                    fontSize: '1.25rem',
+                    color: '#4b5563',
+                    backgroundColor: 'white',
+                    borderRadius: '0.5rem'
+                }}>
+                    Loading POC-land_surface_vertices.xyz and creating 3D visualization...
+                </div>
+            )}
+            
+            {error && (
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    height: '600px',
+                    fontSize: '1.25rem',
+                    color: '#dc2626',
+                    backgroundColor: 'white',
+                    borderRadius: '0.5rem'
+                }}>
+                    {error}
+                </div>
+            )}
+            
+            <div 
+                ref={vtkContainerRef}
+                style={{
+                    width: '100%',
+                    height: '600px',
+                    backgroundColor: 'white',
+                    borderRadius: '0.5rem',
+                    boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05)',
+                    display: loading || error ? 'none' : 'block'
+                }}
+            />
         </div>
     );
 };
