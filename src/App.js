@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import './App.css';
 import Kriging from './kriging';
 import csvData from './h2_frantz.csv';
+import { interpolateIDW } from './idw';
 
 function App() {
     const [data, setData] = useState([]);
@@ -19,7 +20,6 @@ function App() {
             try {
                 const response = await fetch(csvData);
                 const text = await response.text();
-                //const text = DATA
 
                 const lines = text.trim().split('\n');
                 const parsedData = lines.slice(1).map(line => {
@@ -50,28 +50,6 @@ function App() {
 
         loadData();
     }, [variogramModel]);
-
-    // IDW interpolation
-    const interpolateIDW = (lon, lat, points, power = 2) => {
-        let weightSum = 0;
-        let valueSum = 0;
-
-        for (const point of points) {
-            const distance = Math.sqrt(
-                Math.pow(point.lon - lon, 2) + Math.pow(point.lat - lat, 2)
-            );
-
-            if (distance < 0.0001) {
-                return point.h2;
-            }
-
-            const weight = 1 / Math.pow(distance, power);
-            weightSum += weight;
-            valueSum += weight * point.h2;
-        }
-
-        return valueSum / weightSum;
-    };
 
     const getColor = (value) => {
         const normalized = (value - minValue) / (maxValue - minValue);

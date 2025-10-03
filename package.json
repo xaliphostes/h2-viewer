@@ -4,9 +4,12 @@
     "private": true,
     "homepage": "https://xaliphostes.github.io/h2-viewer",
     "dependencies": {
+        "@kitware/vtk.js": "^34.13.1",
+        "leaflet": "^1.9.4",
         "papaparse": "^5.5.3",
-        "react": "^18.2.0",
-        "react-dom": "^18.2.0",
+        "react": "^19.0.0-rc.1",
+        "react-dom": "^19.0.0-rc.1",
+        "react-leaflet": "^5.0.0-rc.2",
         "react-scripts": "5.0.1",
         "three": "^0.180.0"
     },
