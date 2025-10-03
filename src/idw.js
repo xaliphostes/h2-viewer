@@ -1,5 +1,5 @@
 
-export function interpolateIDW(lon, lat, points, power = 2, minDistance = 0.0001) {
+export default function interpolateIDW(lon, lat, points, power = 2, minDistance = 0.0001) {
     let weightSum = 0;
     let valueSum = 0;
 

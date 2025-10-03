@@ -10,7 +10,7 @@ import vtkDataArray from '@kitware/vtk.js/Common/Core/DataArray';
 import vtkColorTransferFunction from '@kitware/vtk.js/Rendering/Core/ColorTransferFunction';
 import Delaunator from 'delaunator';
 
-const DEMVisu = () => {
+const DEMVisu = ({ demData, colorizedImageUrl, bounds, opacity = 0.7 }) => {
     const vtkContainerRef = useRef(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
