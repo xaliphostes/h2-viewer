@@ -1,7 +1,6 @@
 import Kriging from "./kriging";
 import interpolateIDW from "./idw";
 
-
 export default function generateHeatmap(h2Data, bounds, algorithm='kriging', variogramModel='exponential') {
     const canvas = document.createElement('canvas');
     const width = 800;

@@ -8,6 +8,7 @@ import vtkPoints from '@kitware/vtk.js/Common/Core/Points';
 import vtkCellArray from '@kitware/vtk.js/Common/Core/CellArray';
 import vtkDataArray from '@kitware/vtk.js/Common/Core/DataArray';
 import vtkColorTransferFunction from '@kitware/vtk.js/Rendering/Core/ColorTransferFunction';
+import vtkTexture from '@kitware/vtk.js/Rendering/Core/Texture';
 import Delaunator from 'delaunator';
 
 const DEMVisu = ({ demData, colorizedImageUrl, bounds, opacity = 0.7 }) => {
@@ -21,8 +22,7 @@ const DEMVisu = ({ demData, colorizedImageUrl, bounds, opacity = 0.7 }) => {
             try {
                 setLoading(true);
                 
-                 // Auto-load the DEM file
-                // Use process.env.PUBLIC_URL to handle both development and production paths
+                // Auto-load the DEM file
                 const filePath = `${process.env.PUBLIC_URL}/POC-land_surface_vertices.xyz`;
                 const response = await fetch(filePath);
                 
@@ -57,14 +57,29 @@ const DEMVisu = ({ demData, colorizedImageUrl, bounds, opacity = 0.7 }) => {
 
                 let minZ = Infinity;
                 let maxZ = -Infinity;
-                zValues.forEach(z => {
+                let minX = Infinity;
+                let maxX = -Infinity;
+                let minY = Infinity;
+                let maxY = -Infinity;
+                
+                for (let i = 0; i < points.length; i += 3) {
+                    const x = points[i];
+                    const y = points[i + 1];
+                    const z = points[i + 2];
+                    
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
                     if (z < minZ) minZ = z;
                     if (z > maxZ) maxZ = z;
-                });
+                }
                 
                 const numPoints = points.length / 3;
                 
                 console.log(`Loaded ${numPoints} points from POC-land_surface_vertices.xyz`);
+                console.log(`X range: ${minX.toFixed(2)} to ${maxX.toFixed(2)}`);
+                console.log(`Y range: ${minY.toFixed(2)} to ${maxY.toFixed(2)}`);
                 console.log(`Z range: ${minZ.toFixed(2)} to ${maxZ.toFixed(2)}`);
                 
                 // Perform Delaunay triangulation using delaunator
@@ -90,7 +105,6 @@ const DEMVisu = ({ demData, colorizedImageUrl, bounds, opacity = 0.7 }) => {
                 // Clear container
                 vtkContainerRef.current.innerHTML = '';
                 
-                // Create full screen render window
                 const fullScreenRenderer = vtkFullScreenRenderWindow.newInstance({
                     rootContainer: vtkContainerRef.current,
                     containerStyle: {
@@ -112,7 +126,6 @@ const DEMVisu = ({ demData, colorizedImageUrl, bounds, opacity = 0.7 }) => {
                 polydata.setPoints(vtkPoints_instance);
                 
                 // Create triangles from delaunator output
-                // delaunator.triangles is a flat array where each triplet defines a triangle
                 const numTriangles = delaunay.triangles.length / 3;
                 const triangles = new Uint32Array(numTriangles * 4);
                 
@@ -126,7 +139,37 @@ const DEMVisu = ({ demData, colorizedImageUrl, bounds, opacity = 0.7 }) => {
                 const triangleCells = vtkCellArray.newInstance({ values: triangles });
                 polydata.setPolys(triangleCells);
                 
-                // Add Z values as scalars for coloring
+                // Generate texture coordinates based on X, Y position
+                // Normalize X, Y coordinates to [0, 1] range for texture mapping
+                const texCoords = new Float32Array(numPoints * 2);
+                for (let i = 0; i < numPoints; i++) {
+                    const x = points[i * 3];
+                    const y = points[i * 3 + 1];
+                    
+                    // Normalize to texture coordinates [0, 1]
+                    // If bounds are provided, use them; otherwise use computed min/max
+                    let u, v;
+                    if (bounds && bounds.length === 4) {
+                        // bounds = [minLon, minLat, maxLon, maxLat]
+                        u = (x - bounds[0]) / (bounds[2] - bounds[0]);
+                        v = (y - bounds[1]) / (bounds[3] - bounds[1]);
+                    } else {
+                        u = (x - minX) / (maxX - minX);
+                        v = (y - minY) / (maxY - minY);
+                    }
+                    
+                    texCoords[i * 2] = u;
+                    texCoords[i * 2 + 1] = v;
+                }
+                
+                const tcoords = vtkDataArray.newInstance({
+                    name: 'TextureCoordinates',
+                    numberOfComponents: 2,
+                    values: texCoords
+                });
+                polydata.getPointData().setTCoords(tcoords);
+                
+                // Add Z values as scalars for optional elevation coloring
                 const scalars = vtkDataArray.newInstance({
                     name: 'Elevation',
                     values: Float32Array.from(zValues)
@@ -136,22 +179,68 @@ const DEMVisu = ({ demData, colorizedImageUrl, bounds, opacity = 0.7 }) => {
                 // Create mapper
                 const mapper = vtkMapper.newInstance();
                 mapper.setInputData(polydata);
-                mapper.setScalarModeToUsePointData();
-                mapper.setScalarRange(minZ, maxZ);
-                
-                // Create color transfer function
-                const lookupTable = vtkColorTransferFunction.newInstance();
-                lookupTable.addRGBPoint(minZ, 0.0, 0.0, 1.0);          // Blue for low
-                lookupTable.addRGBPoint(minZ + (maxZ - minZ) * 0.25, 0.0, 1.0, 1.0); // Cyan
-                lookupTable.addRGBPoint(minZ + (maxZ - minZ) * 0.5, 0.0, 1.0, 0.0);  // Green
-                lookupTable.addRGBPoint(minZ + (maxZ - minZ) * 0.75, 1.0, 1.0, 0.0); // Yellow
-                lookupTable.addRGBPoint(maxZ, 1.0, 0.0, 0.0);          // Red for high
-                
-                mapper.setLookupTable(lookupTable);
                 
                 // Create actor
                 const actor = vtkActor.newInstance();
                 actor.setMapper(mapper);
+                
+                // If heatmap image is provided, apply it as texture
+                if (colorizedImageUrl) {
+                    console.log('Applying heatmap texture:', colorizedImageUrl);
+                    
+                    // Create image element to load the heatmap
+                    const img = new Image();
+                    img.crossOrigin = 'Anonymous';
+                    
+                    img.onload = () => {
+                        console.log('Heatmap image loaded successfully');
+                        
+                        // Create VTK texture
+                        const texture = vtkTexture.newInstance();
+                        texture.setInterpolate(true);
+                        texture.setImage(img);
+                        
+                        // Apply texture to actor
+                        actor.addTexture(texture);
+                        
+                        // Disable scalar coloring to show texture
+                        //mapper.setScalarVisibility(false);
+                        
+                        // Set actor opacity
+                        actor.getProperty().setOpacity(opacity);
+                        
+                        // Re-render
+                        renderWindow.render();
+                    };
+                    
+                    img.onerror = (err) => {
+                        console.error('Failed to load heatmap image:', err);
+                        // Fallback to elevation coloring
+                        setupElevationColoring();
+                    };
+                    
+                    img.src = colorizedImageUrl;
+                } else {
+                    // No heatmap provided, use elevation coloring
+                    setupElevationColoring();
+                }
+                
+                function setupElevationColoring() {
+                    mapper.setScalarModeToUsePointData();
+                    mapper.setScalarRange(minZ, maxZ);
+                    mapper.setScalarVisibility(true);
+                    
+                    // Create color transfer function
+                    const lookupTable = vtkColorTransferFunction.newInstance();
+                    lookupTable.addRGBPoint(minZ, 0.0, 0.0, 1.0);          // Blue for low
+                    lookupTable.addRGBPoint(minZ + (maxZ - minZ) * 0.25, 0.0, 1.0, 1.0); // Cyan
+                    lookupTable.addRGBPoint(minZ + (maxZ - minZ) * 0.5, 0.0, 1.0, 0.0);  // Green
+                    lookupTable.addRGBPoint(minZ + (maxZ - minZ) * 0.75, 1.0, 1.0, 0.0); // Yellow
+                    lookupTable.addRGBPoint(maxZ, 1.0, 0.0, 0.0);          // Red for high
+                    
+                    mapper.setLookupTable(lookupTable);
+                    renderWindow.render();
+                }
                 
                 // Add actor to renderer
                 renderer.addActor(actor);
@@ -163,7 +252,7 @@ const DEMVisu = ({ demData, colorizedImageUrl, bounds, opacity = 0.7 }) => {
                 // Set background
                 renderer.setBackground(0.95, 0.95, 0.97);
                 
-                // Render
+                // Initial render
                 renderWindow.render();
                 
                 setLoading(false);
@@ -182,7 +271,7 @@ const DEMVisu = ({ demData, colorizedImageUrl, bounds, opacity = 0.7 }) => {
         };
         
         loadAndVisualize();
-    }, []);
+    }, [colorizedImageUrl, bounds, opacity]);
 
     return (
         <div style={{ 
@@ -197,14 +286,14 @@ const DEMVisu = ({ demData, colorizedImageUrl, bounds, opacity = 0.7 }) => {
                     marginBottom: '0.5rem',
                     color: '#1f2937'
                 }}>
-                    DEM Visualization with VTK.js + Delaunator
+                    DEM Visualization with H₂ Heatmap Overlay
                 </h1>
                 <p style={{ 
                     color: '#6b7280', 
                     marginBottom: '1rem',
                     fontSize: '1rem'
                 }}>
-                    POC-land_surface_vertices.xyz - 3D Terrain Surface
+                    POC-land_surface_vertices.xyz - 3D Terrain Surface with Texture Mapping
                 </p>
                 
                 {stats && (
@@ -227,6 +316,9 @@ const DEMVisu = ({ demData, colorizedImageUrl, bounds, opacity = 0.7 }) => {
                         </p>
                         <p style={{ margin: '0.25rem 0' }}>
                             <strong>Elevation range:</strong> {stats.minZ.toFixed(2)} - {stats.maxZ.toFixed(2)}
+                        </p>
+                        <p style={{ margin: '0.25rem 0' }}>
+                            <strong>Heatmap:</strong> {colorizedImageUrl ? 'Applied as texture' : 'Using elevation colors'}
                         </p>
                         <p style={{ 
                             margin: '0.75rem 0 0 0', 
