@@ -51,7 +51,7 @@ const App = () => {
         if (h2Data.length === 0 || !bounds) {
             return;
         }
-        setHeatmapImageUrl(generateHeatmap(h2Data, bounds, algorithm));
+        setHeatmapImageUrl(generateHeatmap(h2Data, bounds, algorithm, variogramModel));
     }, [h2Data, bounds, algorithm, variogramModel]);
 
     return (

@@ -10,6 +10,7 @@ import vtkDataArray from '@kitware/vtk.js/Common/Core/DataArray';
 import vtkColorTransferFunction from '@kitware/vtk.js/Rendering/Core/ColorTransferFunction';
 import vtkTexture from '@kitware/vtk.js/Rendering/Core/Texture';
 import Delaunator from 'delaunator';
+import { detectUtahZone, utahToLatLon, utmToLatLon } from './coordinateConverter';
 
 const DEMVisu = ({ demData, colorizedImageUrl, bounds, opacity = 0.7 }) => {
     const vtkContainerRef = useRef(null);
@@ -17,43 +18,29 @@ const DEMVisu = ({ demData, colorizedImageUrl, bounds, opacity = 0.7 }) => {
     const [error, setError] = useState(null);
     const [stats, setStats] = useState(null);
 
+    const [fullScreenRenderer, setFullScreenRenderer] = useState(null);
+    const [actor, setActor] = useState(null);
+
     useEffect(() => {
         const loadAndVisualize = async () => {
             try {
                 setLoading(true);
-                
+
                 // Auto-load the DEM file
                 const filePath = `${process.env.PUBLIC_URL}/POC-land_surface_vertices.xyz`;
                 const response = await fetch(filePath);
-                
+
                 if (!response.ok) {
                     throw new Error(`Failed to load file: ${response.statusText}`);
                 }
-                
+
                 const text = await response.text();
-                
+
                 // Parse XYZ file
                 const lines = text.trim().split('\n');
                 const points = [];
                 const coords2D = []; // For Delaunator (X, Y only)
                 const zValues = [];
-                
-                for (const line of lines) {
-                    const trimmedLine = line.trim();
-                    if (trimmedLine.length === 0 || trimmedLine.startsWith('#')) continue;
-                    
-                    const values = trimmedLine.split(/\s+/).map(parseFloat);
-                    if (values.length >= 3 && values.every(v => !isNaN(v))) {
-                        const [x, y, z] = values;
-                        points.push(x, y, z);
-                        coords2D.push(x, y); // For Delaunator
-                        zValues.push(z);
-                    }
-                }
-                
-                if (points.length === 0) {
-                    throw new Error('No valid data points found in file');
-                }
 
                 let minZ = Infinity;
                 let maxZ = -Infinity;
@@ -61,12 +48,44 @@ const DEMVisu = ({ demData, colorizedImageUrl, bounds, opacity = 0.7 }) => {
                 let maxX = -Infinity;
                 let minY = Infinity;
                 let maxY = -Infinity;
-                
+
+                const elevationScale = 0.00001;
+
+                for (const line of lines) {
+                    const trimmedLine = line.trim();
+                    if (trimmedLine.length === 0 || trimmedLine.startsWith('#')) continue;
+
+                    const values = trimmedLine.split(/\s+/).map(parseFloat);
+                    if (values.length >= 3 && values.every(v => !isNaN(v))) {
+                        const [xUtah, yUtah, z] = values;
+
+                        // Auto-detect and convert Utah State Plane to Lat/Lon
+                        const zone = detectUtahZone(yUtah);
+                        const { lat, lon } = utahToLatLon(xUtah, yUtah, zone);
+
+                        points.push(lon, lat, z * elevationScale);  // VTK expects [x, y, z] → [lon, lat, elevation]
+                        coords2D.push(lon, lat);   // For Delaunator triangulation
+                        zValues.push(z*elevationScale);
+
+                        // Update bounds
+                        if (lon < minX) minX = lon;
+                        if (lon > maxX) maxX = lon;
+                        if (lat < minY) minY = lat;
+                        if (lat > maxY) maxY = lat;
+                        if (z < minZ) minZ = z;
+                        if (z > maxZ) maxZ = z;
+                    }
+                }
+
+                if (points.length === 0) {
+                    throw new Error('No valid data points found in file');
+                }
+
                 for (let i = 0; i < points.length; i += 3) {
                     const x = points[i];
                     const y = points[i + 1];
                     const z = points[i + 2];
-                    
+
                     if (x < minX) minX = x;
                     if (x > maxX) maxX = x;
                     if (y < minY) minY = y;
@@ -74,14 +93,14 @@ const DEMVisu = ({ demData, colorizedImageUrl, bounds, opacity = 0.7 }) => {
                     if (z < minZ) minZ = z;
                     if (z > maxZ) maxZ = z;
                 }
-                
+
                 const numPoints = points.length / 3;
-                
+
                 console.log(`Loaded ${numPoints} points from POC-land_surface_vertices.xyz`);
                 console.log(`X range: ${minX.toFixed(2)} to ${maxX.toFixed(2)}`);
                 console.log(`Y range: ${minY.toFixed(2)} to ${maxY.toFixed(2)}`);
                 console.log(`Z range: ${minZ.toFixed(2)} to ${maxZ.toFixed(2)}`);
-                
+
                 // Perform Delaunay triangulation using delaunator
                 const delaunay = Delaunator.from(
                     coords2D.reduce((acc, val, i) => {
@@ -89,22 +108,22 @@ const DEMVisu = ({ demData, colorizedImageUrl, bounds, opacity = 0.7 }) => {
                         return acc;
                     }, [])
                 );
-                
+
                 console.log(`Created ${delaunay.triangles.length / 3} triangles`);
-                
+
                 setStats({
                     numPoints,
                     numTriangles: delaunay.triangles.length / 3,
                     minZ,
                     maxZ
                 });
-                
+
                 // Create VTK visualization
                 if (!vtkContainerRef.current) return;
-                
+
                 // Clear container
                 vtkContainerRef.current.innerHTML = '';
-                
+
                 const fullScreenRenderer = vtkFullScreenRenderWindow.newInstance({
                     rootContainer: vtkContainerRef.current,
                     containerStyle: {
@@ -113,39 +132,39 @@ const DEMVisu = ({ demData, colorizedImageUrl, bounds, opacity = 0.7 }) => {
                         position: 'relative'
                     }
                 });
-                
+
                 const renderer = fullScreenRenderer.getRenderer();
                 const renderWindow = fullScreenRenderer.getRenderWindow();
-                
+
                 // Create polydata
                 const polydata = vtkPolyData.newInstance();
-                
+
                 // Add points
                 const vtkPoints_instance = vtkPoints.newInstance();
                 vtkPoints_instance.setData(Float32Array.from(points), 3);
                 polydata.setPoints(vtkPoints_instance);
-                
+
                 // Create triangles from delaunator output
                 const numTriangles = delaunay.triangles.length / 3;
                 const triangles = new Uint32Array(numTriangles * 4);
-                
+
                 for (let i = 0; i < numTriangles; i++) {
                     triangles[i * 4] = 3; // Number of points in this polygon (triangle)
                     triangles[i * 4 + 1] = delaunay.triangles[i * 3];     // First vertex
                     triangles[i * 4 + 2] = delaunay.triangles[i * 3 + 1]; // Second vertex
                     triangles[i * 4 + 3] = delaunay.triangles[i * 3 + 2]; // Third vertex
                 }
-                
+
                 const triangleCells = vtkCellArray.newInstance({ values: triangles });
                 polydata.setPolys(triangleCells);
-                
+
                 // Generate texture coordinates based on X, Y position
                 // Normalize X, Y coordinates to [0, 1] range for texture mapping
                 const texCoords = new Float32Array(numPoints * 2);
                 for (let i = 0; i < numPoints; i++) {
                     const x = points[i * 3];
                     const y = points[i * 3 + 1];
-                    
+
                     // Normalize to texture coordinates [0, 1]
                     // If bounds are provided, use them; otherwise use computed min/max
                     let u, v;
@@ -157,79 +176,79 @@ const DEMVisu = ({ demData, colorizedImageUrl, bounds, opacity = 0.7 }) => {
                         u = (x - minX) / (maxX - minX);
                         v = (y - minY) / (maxY - minY);
                     }
-                    
+
                     texCoords[i * 2] = u;
                     texCoords[i * 2 + 1] = v;
                 }
-                
+
                 const tcoords = vtkDataArray.newInstance({
                     name: 'TextureCoordinates',
                     numberOfComponents: 2,
                     values: texCoords
                 });
                 polydata.getPointData().setTCoords(tcoords);
-                
+
                 // Add Z values as scalars for optional elevation coloring
                 const scalars = vtkDataArray.newInstance({
                     name: 'Elevation',
                     values: Float32Array.from(zValues)
                 });
                 polydata.getPointData().setScalars(scalars);
-                
+
                 // Create mapper
                 const mapper = vtkMapper.newInstance();
                 mapper.setInputData(polydata);
-                
+
                 // Create actor
                 const actor = vtkActor.newInstance();
                 actor.setMapper(mapper);
-                
+
                 // If heatmap image is provided, apply it as texture
                 if (colorizedImageUrl) {
                     //console.log('Applying heatmap texture:', colorizedImageUrl);
-                    
+
                     // Create image element to load the heatmap
                     const img = new Image();
                     img.crossOrigin = 'Anonymous';
-                    
+
                     img.onload = () => {
                         console.log('Heatmap image loaded successfully');
-                        
+
                         // Create VTK texture
                         const texture = vtkTexture.newInstance();
                         texture.setInterpolate(true);
                         texture.setImage(img);
-                        
+
                         // Apply texture to actor
                         actor.addTexture(texture);
-                        
+
                         // Disable scalar coloring to show texture
                         //mapper.setScalarVisibility(false);
-                        
+
                         // Set actor opacity
                         actor.getProperty().setOpacity(opacity);
-                        
+
                         // Re-render
                         renderWindow.render();
                     };
-                    
+
                     img.onerror = (err) => {
                         console.error('Failed to load heatmap image:', err);
                         // Fallback to elevation coloring
                         setupElevationColoring();
                     };
-                    
+
                     img.src = colorizedImageUrl;
                 } else {
                     // No heatmap provided, use elevation coloring
                     setupElevationColoring();
                 }
-                
+
                 function setupElevationColoring() {
                     mapper.setScalarModeToUsePointData();
                     mapper.setScalarRange(minZ, maxZ);
                     mapper.setScalarVisibility(true);
-                    
+
                     // Create color transfer function
                     const lookupTable = vtkColorTransferFunction.newInstance();
                     lookupTable.addRGBPoint(minZ, 0.0, 0.0, 1.0);          // Blue for low
@@ -237,68 +256,100 @@ const DEMVisu = ({ demData, colorizedImageUrl, bounds, opacity = 0.7 }) => {
                     lookupTable.addRGBPoint(minZ + (maxZ - minZ) * 0.5, 0.0, 1.0, 0.0);  // Green
                     lookupTable.addRGBPoint(minZ + (maxZ - minZ) * 0.75, 1.0, 1.0, 0.0); // Yellow
                     lookupTable.addRGBPoint(maxZ, 1.0, 0.0, 0.0);          // Red for high
-                    
+
                     mapper.setLookupTable(lookupTable);
                     renderWindow.render();
                 }
-                
+
                 // Add actor to renderer
                 renderer.addActor(actor);
                 renderer.resetCamera();
                 renderer.getActiveCamera().elevation(-30);
                 renderer.getActiveCamera().azimuth(45);
                 renderer.resetCameraClippingRange();
-                
+
                 // Set background
                 renderer.setBackground(0.95, 0.95, 0.97);
-                
+
                 // Initial render
                 renderWindow.render();
-                
+
                 setLoading(false);
                 setError(null);
-                
+
+                // Store the renderer and actor in state
+                setFullScreenRenderer(fullScreenRenderer);
+                setActor(actor);
+
                 // Cleanup function
                 return () => {
                     fullScreenRenderer.delete();
                 };
-                
+
             } catch (err) {
                 setError(`Error loading DEM file: ${err.message}`);
                 setLoading(false);
                 console.error('Error in DEMVisu:', err);
             }
         };
-        
+
         loadAndVisualize();
-    }, [colorizedImageUrl, bounds, opacity]);
+
+        return () => {
+            if (fullScreenRenderer) {
+                fullScreenRenderer.delete();
+            }
+        };
+    }, []); // Empty dependency array - runs once
+
+    // Effect 2: Update texture and opacity only
+    useEffect(() => {
+        if (!actor || !fullScreenRenderer) return;
+
+        // Update texture
+        if (colorizedImageUrl) {
+            const img = new Image();
+            img.onload = () => {
+                const texture = vtkTexture.newInstance();
+                texture.setInterpolate(true);
+                texture.setImage(img);
+                actor.addTexture(texture);
+                fullScreenRenderer.getRenderWindow().render();
+            };
+            img.src = colorizedImageUrl;
+        }
+
+        // Update opacity
+        actor.getProperty().setOpacity(opacity);
+        fullScreenRenderer.getRenderWindow().render();
+    }, [colorizedImageUrl, opacity, actor, fullScreenRenderer]);
 
     return (
-        <div style={{ 
-            backgroundColor: '#f9fafb', 
+        <div style={{
+            backgroundColor: '#f9fafb',
             padding: '2rem',
             minHeight: '100vh'
         }}>
             <div style={{ marginBottom: '1.5rem' }}>
-                <h1 style={{ 
-                    fontSize: '2rem', 
-                    fontWeight: 'bold', 
+                <h1 style={{
+                    fontSize: '2rem',
+                    fontWeight: 'bold',
                     marginBottom: '0.5rem',
                     color: '#1f2937'
                 }}>
                     DEM Visualization with H₂ Heatmap Overlay
                 </h1>
-                <p style={{ 
-                    color: '#6b7280', 
+                <p style={{
+                    color: '#6b7280',
                     marginBottom: '1rem',
                     fontSize: '1rem'
                 }}>
                     POC-land_surface_vertices.xyz - 3D Terrain Surface with Texture Mapping
                 </p>
-                
+
                 {stats && (
-                    <div style={{ 
-                        fontSize: '0.875rem', 
+                    <div style={{
+                        fontSize: '0.875rem',
                         color: '#4b5563',
                         backgroundColor: 'white',
                         padding: '1rem',
@@ -320,9 +371,9 @@ const DEMVisu = ({ demData, colorizedImageUrl, bounds, opacity = 0.7 }) => {
                         <p style={{ margin: '0.25rem 0' }}>
                             <strong>Heatmap:</strong> {colorizedImageUrl ? 'Applied as texture' : 'Using elevation colors'}
                         </p>
-                        <p style={{ 
-                            margin: '0.75rem 0 0 0', 
-                            fontSize: '0.75rem', 
+                        <p style={{
+                            margin: '0.75rem 0 0 0',
+                            fontSize: '0.75rem',
                             fontStyle: 'italic',
                             color: '#6b7280'
                         }}>
@@ -331,7 +382,7 @@ const DEMVisu = ({ demData, colorizedImageUrl, bounds, opacity = 0.7 }) => {
                     </div>
                 )}
             </div>
-            
+
             {loading && (
                 <div style={{
                     display: 'flex',
@@ -346,7 +397,7 @@ const DEMVisu = ({ demData, colorizedImageUrl, bounds, opacity = 0.7 }) => {
                     Loading POC-land_surface_vertices.xyz and creating 3D visualization...
                 </div>
             )}
-            
+
             {error && (
                 <div style={{
                     display: 'flex',
@@ -361,8 +412,8 @@ const DEMVisu = ({ demData, colorizedImageUrl, bounds, opacity = 0.7 }) => {
                     {error}
                 </div>
             )}
-            
-            <div 
+
+            <div
                 ref={vtkContainerRef}
                 style={{
                     width: '100%',
