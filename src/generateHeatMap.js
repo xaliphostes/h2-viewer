@@ -68,7 +68,7 @@ export default function generateHeatmap(h2Data, bounds, algorithm='kriging', var
             if (algorithm === 'kriging') {
                 value = krigingModel.interpolate(lon, lat);
             } else {
-                value = interpolateIDW(lon, lat);
+                value = interpolateIDW(lon, lat, h2Data);
             }
 
             const color = getColor(value);

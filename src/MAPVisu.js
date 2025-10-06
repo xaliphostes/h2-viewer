@@ -18,7 +18,7 @@ function FitBounds({ bounds }) {
 
 const MAPVisu = ({ demData, colorizedImageUrl, bounds, opacity = 0.7 }) => {
     const [mapBounds, setMapBounds] = useState(null);
-    const renderWindowRef = useRef(null);
+    // const renderWindowRef = useRef(null);
 
     // Set up 2D map bounds
     useEffect(() => {

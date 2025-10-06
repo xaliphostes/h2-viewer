@@ -51,9 +51,6 @@ const App = () => {
         if (h2Data.length === 0 || !bounds) {
             return;
         }
-        // generateHeatmap(h2Data, bounds, algorithm).then(dataUrl => {
-        //     setHeatmapImageUrl(dataUrl);
-        // });
         setHeatmapImageUrl(generateHeatmap(h2Data, bounds, algorithm));
     }, [h2Data, bounds, algorithm, variogramModel]);
 
@@ -95,7 +92,9 @@ const App = () => {
                         </label>
                         <select
                             value={variogramModel}
-                            onChange={(e) => setVariogramModel(e.target.value)}
+                            onChange={(e) => {
+                                setVariogramModel(e.target.value)}
+                            }
                             style={{ width: '100%', padding: '5px' }}
                         >
                             <option value="exponential">Exponential</option>

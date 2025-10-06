@@ -186,7 +186,7 @@ const DEMVisu = ({ demData, colorizedImageUrl, bounds, opacity = 0.7 }) => {
                 
                 // If heatmap image is provided, apply it as texture
                 if (colorizedImageUrl) {
-                    console.log('Applying heatmap texture:', colorizedImageUrl);
+                    //console.log('Applying heatmap texture:', colorizedImageUrl);
                     
                     // Create image element to load the heatmap
                     const img = new Image();
