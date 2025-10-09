@@ -317,7 +317,7 @@
         // Load and parse CSV data
         async function loadData() {
             try {
-                const response = await fetch('/h2_frantz.csv');
+                const response = await fetch('./h2_frantz.csv');
                 const text = await response.text();
                 const lines = text.trim().split('\n');
 
@@ -356,92 +356,6 @@
                 console.error('Error loading data:', error);
                 alert('Error loading data. Make sure h2_frantz.csv is in the public folder.');
             }
-        }
-
-        function getColorMapper(minH2, maxH2, colorScheme) {
-            // Logarithmic color mapping for skewed data
-            let colorMapper = undefined
-
-            if (colorScheme === 'logarithmic') {
-                colorMapper = new ColorMapper(minH2, maxH2, (normalized) => {
-                    // Apply logarithmic scaling
-                    const value = minH2 + normalized * (maxH2 - minH2);
-                    const logMin = Math.log10(minH2 + 0.001);
-                    const logMax = Math.log10(maxH2 + 0.001);
-                    const logValue = Math.log10(value + 0.001);
-                    const logNormalized = (logValue - logMin) / (logMax - logMin);
-
-                    // Use viridis color scheme on log scale
-                    const viridisStops = [
-                        { position: 0.00, color: { r: 68, g: 1, b: 84 } },
-                        { position: 0.25, color: { r: 59, g: 82, b: 139 } },
-                        { position: 0.50, color: { r: 33, g: 145, b: 140 } },
-                        { position: 0.75, color: { r: 94, g: 201, b: 98 } },
-                        { position: 1.00, color: { r: 253, g: 231, b: 37 } }
-                    ];
-
-                    // Interpolate color based on log-normalized value
-                    for (let i = 0; i < viridisStops.length - 1; i++) {
-                        const stop1 = viridisStops[i];
-                        const stop2 = viridisStops[i + 1];
-                        if (logNormalized >= stop1.position && logNormalized <= stop2.position) {
-                            const t = (logNormalized - stop1.position) / (stop2.position - stop1.position);
-                            return {
-                                r: stop1.color.r + (stop2.color.r - stop1.color.r) * t,
-                                g: stop1.color.g + (stop2.color.g - stop1.color.g) * t,
-                                b: stop1.color.b + (stop2.color.b - stop1.color.b) * t
-                            };
-                        }
-                    }
-                    return viridisStops[viridisStops.length - 1].color;
-                });
-            }
-
-            // Two-step color mapping: 0-1 gets 70% of colors, 1-30 gets 30%
-            else if (colorScheme === 'twostep') {
-                colorMapper = new ColorMapper(minH2, maxH2, (normalized) => {
-                    const value = minH2 + normalized * (maxH2 - minH2);
-
-                    // Define two ranges with different color resolutions
-                    let adjustedNormalized;
-                    if (value <= 1) {
-                        // 0-1 range: map to 0-0.7 of color scale (70% of colors)
-                        adjustedNormalized = (value / 1.0) * 0.7;
-                    } else {
-                        // 1-30 range: map to 0.7-1.0 of color scale (30% of colors)
-                        adjustedNormalized = 0.7 + ((value - 1) / (maxH2 - 1)) * 0.3;
-                    }
-
-                    // Use plasma color scheme
-                    const plasmaStops = [
-                        { position: 0.00, color: { r: 13, g: 8, b: 135 } },
-                        { position: 0.25, color: { r: 126, g: 3, b: 168 } },
-                        { position: 0.50, color: { r: 204, g: 71, b: 120 } },
-                        { position: 0.75, color: { r: 248, g: 149, b: 64 } },
-                        { position: 1.00, color: { r: 240, g: 249, b: 33 } }
-                    ];
-
-                    // Interpolate color
-                    for (let i = 0; i < plasmaStops.length - 1; i++) {
-                        const stop1 = plasmaStops[i];
-                        const stop2 = plasmaStops[i + 1];
-                        if (adjustedNormalized >= stop1.position && adjustedNormalized <= stop2.position) {
-                            const t = (adjustedNormalized - stop1.position) / (stop2.position - stop1.position);
-                            return {
-                                r: stop1.color.r + (stop2.color.r - stop1.color.r) * t,
-                                g: stop1.color.g + (stop2.color.g - stop1.color.g) * t,
-                                b: stop1.color.b + (stop2.color.b - stop1.color.b) * t
-                            };
-                        }
-                    }
-                    return plasmaStops[plasmaStops.length - 1].color;
-                });
-            }
-            else {
-                colorMapper = new ColorMapper(minH2, maxH2, colorScheme);
-            }
-
-            return colorMapper
         }
 
         // Generate heatmap
