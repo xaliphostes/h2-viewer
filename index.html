@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>H2 Heatmap Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+
+        .content {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 30px;
+            padding: 30px;
+        }
+
+        .controls {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 8px;
+            height: fit-content;
+        }
+
+        .control-group {
+            margin-bottom: 25px;
+        }
+
+        .control-group label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #333;
+            font-size: 0.95em;
+        }
+
+        .control-group select,
+        .control-group input {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        .control-group select:focus,
+        .control-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .control-group input[type="number"] {
+            font-family: monospace;
+        }
+
+        button {
+            width: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 14px;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .visualization {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        canvas {
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            max-width: 100%;
+            height: auto;
+        }
+
+        .stats {
+            margin-top: 5px;
+            padding: 5px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            width: 100%;
+        }
+
+        .stats h3 {
+            margin-bottom: 15px;
+            color: #333;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+        }
+
+        .stat-item {
+            background: white;
+            padding: 12px;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+        }
+
+        .stat-label {
+            font-size: 0.85em;
+            color: #666;
+            margin-bottom: 4px;
+        }
+
+        .stat-value {
+            font-size: 1.3em;
+            font-weight: 700;
+            color: #333;
+        }
+
+        .legend {
+            margin-top: 15px;
+            padding: 15px;
+            background: white;
+            border-radius: 6px;
+        }
+
+        .legend-title {
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .legend-gradient {
+            height: 20px;
+            border-radius: 4px;
+            margin-bottom: 8px;
+        }
+
+        .legend-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85em;
+            color: #666;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-style: italic;
+        }
+
+        @media (max-width: 968px) {
+            .content {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🗺️ H2 Concentration Heatmap</h1>
+            <p>Interactive geospatial visualization with advanced interpolation</p>
+        </div>
+
+        <div class="content">
+            <div class="controls">
+                <div class="control-group">
+                    <label for="colorScheme">Color Scheme</label>
+                    <select id="colorScheme">
+                        <option value="logarithmic">Logarithmic (for skewed data)</option>
+                        <option value="twostep" selected>Two-Step (0-1 / 1-30)</option>
+                        <option value="rainbow">Rainbow</option>
+                        <option value="viridis">Viridis</option>
+                        <option value="plasma">Plasma</option>
+                        <option value="turbo">Turbo</option>
+                        <option value="thermal">Thermal</option>
+                        <option value="grayscale">Grayscale</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <label for="algorithm">Interpolation Method</label>
+                    <select id="algorithm">
+                        <option value="kriging" selected>Kriging</option>
+                        <option value="idw">Inverse Distance Weighting (IDW)</option>
+                    </select>
+                </div>
+
+                <div id="krigingOptions">
+                    <div class="control-group">
+                        <label for="variogramModel">Variogram Model</label>
+                        <select id="variogramModel">
+                            <option value="exponential" selected>Exponential</option>
+                            <option value="gaussian">Gaussian</option>
+                            <option value="spherical">Spherical</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="idwOptions" style="display: none;">
+                    <div class="control-group">
+                        <label for="power">Power Parameter</label>
+                        <input type="number" id="power" value="2" min="0.5" max="5" step="0.5">
+                    </div>
+                    <div class="control-group">
+                        <label for="minDistance">Min Distance</label>
+                        <input type="number" id="minDistance" value="0.0001" min="0.0001" max="0.01" step="0.0001">
+                    </div>
+                </div>
+            </div>
+
+            <div class="visualization">
+                <canvas id="heatmapCanvas" width="600" height="400"></canvas>
+
+                <div class="stats">
+                    <div class="legend">
+                        <div class="legend-title">Color Scale</div>
+                        <div class="legend-gradient" id="legendGradient"></div>
+                        <div class="legend-labels">
+                            <span id="legendMin">0</span>
+                            <span id="legendMax">100</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="stats">
+                    <h3>Dataset Statistics</h3>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <div class="stat-label">Data Points</div>
+                            <div class="stat-value" id="statPoints">-</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">Min H2 (ppm)</div>
+                            <div class="stat-value" id="statMin">-</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">Max H2 (ppm)</div>
+                            <div class="stat-value" id="statMax">-</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">Mean H2 (ppm)</div>
+                            <div class="stat-value" id="statMean">-</div>
+                        </div>
+                    </div>
+
+                    
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import Kriging from './src/kriging.ts';
+        import interpolateIDW from './src/idw.ts';
+        import { ColorMapper } from './src/ColorMapper.ts';
+
+        let h2Data = [];
+        let bounds = [];
+
+        // Load and parse CSV data
+        async function loadData() {
+            try {
+                const response = await fetch('/h2_frantz.csv');
+                const text = await response.text();
+                const lines = text.trim().split('\n');
+
+                // Skip header
+                const dataLines = lines.slice(1);
+
+                h2Data = dataLines.map(line => {
+                    const [lat, lon, h2] = line.split(';').map(v => parseFloat(v.trim()));
+                    return { lat, lon, h2 };
+                }).filter(d => !isNaN(d.lat) && !isNaN(d.lon) && !isNaN(d.h2));
+
+                // Calculate bounds
+                const lats = h2Data.map(d => d.lat);
+                const lons = h2Data.map(d => d.lon);
+                bounds = [
+                    Math.min(...lons),
+                    Math.min(...lats),
+                    Math.max(...lons),
+                    Math.max(...lats)
+                ];
+
+                // Update statistics
+                const h2Values = h2Data.map(d => d.h2);
+                const minH2 = Math.min(...h2Values);
+                const maxH2 = Math.max(...h2Values);
+                const meanH2 = h2Values.reduce((a, b) => a + b, 0) / h2Values.length;
+
+                document.getElementById('statPoints').textContent = h2Data.length;
+                document.getElementById('statMin').textContent = minH2.toFixed(2);
+                document.getElementById('statMax').textContent = maxH2.toFixed(2);
+                document.getElementById('statMean').textContent = meanH2.toFixed(2);
+
+                console.log('Data loaded:', h2Data.length, 'points');
+                console.log('Bounds:', bounds);
+            } catch (error) {
+                console.error('Error loading data:', error);
+                alert('Error loading data. Make sure h2_frantz.csv is in the public folder.');
+            }
+        }
+
+        function getColorMapper(minH2, maxH2, colorScheme) {
+            // Logarithmic color mapping for skewed data
+            let colorMapper = undefined
+
+            if (colorScheme === 'logarithmic') {
+                colorMapper = new ColorMapper(minH2, maxH2, (normalized) => {
+                    // Apply logarithmic scaling
+                    const value = minH2 + normalized * (maxH2 - minH2);
+                    const logMin = Math.log10(minH2 + 0.001);
+                    const logMax = Math.log10(maxH2 + 0.001);
+                    const logValue = Math.log10(value + 0.001);
+                    const logNormalized = (logValue - logMin) / (logMax - logMin);
+
+                    // Use viridis color scheme on log scale
+                    const viridisStops = [
+                        { position: 0.00, color: { r: 68, g: 1, b: 84 } },
+                        { position: 0.25, color: { r: 59, g: 82, b: 139 } },
+                        { position: 0.50, color: { r: 33, g: 145, b: 140 } },
+                        { position: 0.75, color: { r: 94, g: 201, b: 98 } },
+                        { position: 1.00, color: { r: 253, g: 231, b: 37 } }
+                    ];
+
+                    // Interpolate color based on log-normalized value
+                    for (let i = 0; i < viridisStops.length - 1; i++) {
+                        const stop1 = viridisStops[i];
+                        const stop2 = viridisStops[i + 1];
+                        if (logNormalized >= stop1.position && logNormalized <= stop2.position) {
+                            const t = (logNormalized - stop1.position) / (stop2.position - stop1.position);
+                            return {
+                                r: stop1.color.r + (stop2.color.r - stop1.color.r) * t,
+                                g: stop1.color.g + (stop2.color.g - stop1.color.g) * t,
+                                b: stop1.color.b + (stop2.color.b - stop1.color.b) * t
+                            };
+                        }
+                    }
+                    return viridisStops[viridisStops.length - 1].color;
+                });
+            }
+
+            // Two-step color mapping: 0-1 gets 70% of colors, 1-30 gets 30%
+            else if (colorScheme === 'twostep') {
+                colorMapper = new ColorMapper(minH2, maxH2, (normalized) => {
+                    const value = minH2 + normalized * (maxH2 - minH2);
+
+                    // Define two ranges with different color resolutions
+                    let adjustedNormalized;
+                    if (value <= 1) {
+                        // 0-1 range: map to 0-0.7 of color scale (70% of colors)
+                        adjustedNormalized = (value / 1.0) * 0.7;
+                    } else {
+                        // 1-30 range: map to 0.7-1.0 of color scale (30% of colors)
+                        adjustedNormalized = 0.7 + ((value - 1) / (maxH2 - 1)) * 0.3;
+                    }
+
+                    // Use plasma color scheme
+                    const plasmaStops = [
+                        { position: 0.00, color: { r: 13, g: 8, b: 135 } },
+                        { position: 0.25, color: { r: 126, g: 3, b: 168 } },
+                        { position: 0.50, color: { r: 204, g: 71, b: 120 } },
+                        { position: 0.75, color: { r: 248, g: 149, b: 64 } },
+                        { position: 1.00, color: { r: 240, g: 249, b: 33 } }
+                    ];
+
+                    // Interpolate color
+                    for (let i = 0; i < plasmaStops.length - 1; i++) {
+                        const stop1 = plasmaStops[i];
+                        const stop2 = plasmaStops[i + 1];
+                        if (adjustedNormalized >= stop1.position && adjustedNormalized <= stop2.position) {
+                            const t = (adjustedNormalized - stop1.position) / (stop2.position - stop1.position);
+                            return {
+                                r: stop1.color.r + (stop2.color.r - stop1.color.r) * t,
+                                g: stop1.color.g + (stop2.color.g - stop1.color.g) * t,
+                                b: stop1.color.b + (stop2.color.b - stop1.color.b) * t
+                            };
+                        }
+                    }
+                    return plasmaStops[plasmaStops.length - 1].color;
+                });
+            }
+            else {
+                colorMapper = new ColorMapper(minH2, maxH2, colorScheme);
+            }
+
+            return colorMapper
+        }
+
+        // Generate heatmap
+        function generateHeatmap() {
+            if (h2Data.length === 0) {
+                alert('No data loaded!');
+                return;
+            }
+
+            const canvas = document.getElementById('heatmapCanvas');
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+
+            // Get user selections
+            const colorScheme = document.getElementById('colorScheme').value;
+            const algorithm = document.getElementById('algorithm').value;
+            const variogramModel = document.getElementById('variogramModel').value;
+            const power = parseFloat(document.getElementById('power').value);
+            const minDistance = parseFloat(document.getElementById('minDistance').value);
+
+            // Auto-regenerate on any control change
+            const controls = ['colorScheme', 'algorithm', 'variogramModel', 'power', 'minDistance'];
+
+            controls.forEach(controlId => {
+                const element = document.getElementById(controlId);
+                element.addEventListener('change', () => {
+                    if (h2Data.length > 0) {
+                        generate()
+                    }
+                });
+            });
+
+            // Get H2 value range
+            const h2Values = h2Data.map(d => d.h2);
+            const minH2 = Math.min(...h2Values);
+            const maxH2 = Math.max(...h2Values);
+
+            // Initialize color mapper
+
+            const colorMapper = new ColorMapper(minH2, maxH2, colorScheme);
+
+            // Update legend
+            document.getElementById('legendMin').textContent = minH2.toFixed(2);
+            document.getElementById('legendMax').textContent = maxH2.toFixed(2);
+            updateLegendGradient(colorMapper);
+
+            const [minLon, minLat, maxLon, maxLat] = bounds;
+            const lonRange = maxLon - minLon;
+            const latRange = maxLat - minLat;
+
+            // Initialize interpolation model
+            let krigingModel = null;
+            if (algorithm === 'kriging') {
+                console.log('Initializing Kriging with model:', variogramModel);
+                krigingModel = new Kriging(h2Data, { model: variogramModel });
+                console.log('Kriging parameters:', krigingModel.getParameters());
+            }
+
+            // Generate grid
+            const gridSize = 100;
+            const cellWidth = width / gridSize;
+            const cellHeight = height / gridSize;
+
+            console.log('Generating heatmap...');
+            const startTime = performance.now();
+
+            for (let i = 0; i < gridSize; i++) {
+                for (let j = 0; j < gridSize; j++) {
+                    const lon = minLon + lonRange * (i + 0.5) / gridSize;
+                    const lat = maxLat - latRange * (j + 0.5) / gridSize;
+
+                    let value;
+                    if (algorithm === 'kriging' && krigingModel) {
+                        value = krigingModel.interpolate(lon, lat);
+                    } else {
+                        value = interpolateIDW(lon, lat, h2Data, power, minDistance);
+                    }
+
+                    const color = colorMapper.getColorString(value);
+                    ctx.fillStyle = color;
+                    ctx.fillRect(i * cellWidth, j * cellHeight, cellWidth, cellHeight);
+                }
+            }
+
+            const endTime = performance.now();
+            console.log(`Heatmap generated in ${(endTime - startTime).toFixed(0)}ms`);
+        }
+
+        // Update legend gradient
+        function updateLegendGradient(colorMapper) {
+            const legendGradient = document.getElementById('legendGradient');
+            const steps = 100;
+            let gradientString = 'linear-gradient(to right';
+
+            for (let i = 0; i <= steps; i++) {
+                const position = i / steps;
+                const color = colorMapper.getColor(colorMapper.minValue + position * (colorMapper.maxValue - colorMapper.minValue));
+                gradientString += `, rgb(${Math.round(color.r)}, ${Math.round(color.g)}, ${Math.round(color.b)})`;
+            }
+
+            gradientString += ')';
+            legendGradient.style.background = gradientString;
+        }
+
+        // Toggle interpolation options
+        document.getElementById('algorithm').addEventListener('change', (e) => {
+            const algorithm = e.target.value;
+            document.getElementById('krigingOptions').style.display = algorithm === 'kriging' ? 'block' : 'none';
+            document.getElementById('idwOptions').style.display = algorithm === 'idw' ? 'block' : 'none';
+        });
+
+        function generate() {
+            setTimeout(() => {
+                generateHeatmap();
+            }, 10);
+        }
+
+        // Initialize
+        loadData().then(() => {
+            generateHeatmap();
+        });
+    </script>
+</body>
+
+</html>

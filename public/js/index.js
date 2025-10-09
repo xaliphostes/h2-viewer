@@ -1,0 +1,5 @@
+export * from "./generateHeatMap";
+export * from "./ColorMapper";
+export * from "./interpolation.types";
+export * from "./kriging";
+export * from "./idw";
